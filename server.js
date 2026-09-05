@@ -6,10 +6,7 @@ const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 
-// Estado global mantido no servidor
-let systemActive = true;
-
-// PAINEL DE CONTROLE VISUAL
+// Página informativa simples para o servidor
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`
@@ -18,42 +15,27 @@ app.get('/', (req, res) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Painel Maestro Spoofer</title>
+      <title>Servidor de Script</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 30px; border-radius: 16px; text-align: center; max-width: 350px; width: 90%; border: 1px solid #334155; }
-        .status { font-size: 18px; font-weight: bold; padding: 12px; border-radius: 8px; margin: 20px 0; }
-        .on { background: #166534; color: #4ade80; }
-        .off { background: #991b1b; color: #f87171; }
-        .btn { width: 100%; padding: 14px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 10px; }
-        .btn-on { background: #22c55e; color: #000; }
-        .btn-off { background: #ef4444; color: #fff; }
+        .card { background: #1e293b; padding: 25px; border-radius: 12px; text-align: center; max-width: 400px; border: 1px solid #334155; }
+        code { background: #090d16; padding: 4px 8px; border-radius: 4px; color: #38bdf8; font-size: 13px; }
       </style>
     </head>
     <body>
       <div class="card">
-        <h2>Painel de Controle</h2>
-        <div class="status ${systemActive ? 'on' : 'off'}">
-          ${systemActive ? 'SISTEMA ATIVO' : 'SISTEMA DESATIVADO'}
-        </div>
-        <button class="btn btn-on" onclick="location.href='/toggle?state=true'">ATIVAR SCRIPT</button>
-        <button class="btn btn-off" onclick="location.href='/toggle?state=false'">DESATIVAR SCRIPT</button>
+        <h2>Ativação Individual</h2>
+        <p>Para ativar o script no seu navegador, acesse o seu blog adicionando:</p>
+        <p><code>?spoofer=on</code></p>
+        <p>Para desativar no seu navegador, acesse:</p>
+        <p><code>?spoofer=off</code></p>
       </div>
     </body>
     </html>
   `);
 });
 
-app.get('/toggle', (req, res) => {
-  systemActive = req.query.state === 'true';
-  res.redirect('/');
-});
-
-app.get('/status', (req, res) => {
-  res.json({ active: systemActive });
-});
-
-// SCRIPT SERVIDO PARA O BLOGGER
+// Arquivo do script fornecido ao Blogger
 app.get('/device-spoofer.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -62,13 +44,30 @@ app.get('/device-spoofer.js', (req, res) => {
 (function() {
     'use strict';
 
-    // Se a chave de desativação manual estiver no localStorage do blog, para.
-    if (localStorage.getItem('spoofer_disabled') === 'true') {
+    const STORAGE_KEY = 'user_spoofer_enabled';
+    const VISITS_TO_RESET = 2;
+
+    // 1. Verifica se o usuário enviou o comando de ativação ou desativação pela URL
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        if (urlParams.get('spoofer') === 'on') {
+            localStorage.setItem(STORAGE_KEY, 'true');
+            // Limpa o parâmetro da URL sem recarregar a página
+            window.history.replaceState({}, document.title, window.location.pathname);
+        } else if (urlParams.get('spoofer') === 'off') {
+            localStorage.removeItem(STORAGE_KEY);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+        }
+    } catch(e) {}
+
+    // 2. Bloqueia a execução se este navegador específico não ativou a chave
+    if (localStorage.getItem(STORAGE_KEY) !== 'true') {
         return;
     }
 
-    const VISITS_TO_RESET = 2;
-
+    // 3. Execução da simulação para navegadores autorizados
     function generateNewUserId() {
         return 'device_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
     }
@@ -82,7 +81,7 @@ app.get('/device-spoofer.js', (req, res) => {
                 }
             });
             
-            // Limpa dados de rastreamento SEM apagar configurações do sistema
+            // Apaga dados temporários mantendo a chave de permissão
             sessionStorage.clear();
             localStorage.removeItem('visit_counter');
             localStorage.removeItem('current_device_id');
@@ -118,7 +117,7 @@ app.get('/device-spoofer.js', (req, res) => {
 
     spoofFingerprint();
 
-    console.log('[Spoofer Executado] Visita: ' + visitCount + ' | Novo ID: ' + currentUserId);
+    console.log('[Spoofer Ativo no Dispositivo] Visita: ' + visitCount + ' | ID: ' + currentUserId);
 })();
   `;
 
