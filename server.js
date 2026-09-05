@@ -7,10 +7,10 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Conjunto para armazenar apenas os IDs de dispositivos autorizados
+// Lista mantida no servidor
 const authorizedDevices = new Set();
 
-// 1. INTERFACE HTML (Painel por Dispositivo)
+// 1. PAINEL DE CONTROLE (Render)
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`
@@ -55,13 +55,7 @@ app.get('/', (req, res) => {
         }
         .active-badge { background-color: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
         .inactive-badge { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-        
-        .button-group {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
+        .button-group { display: flex; flex-direction: column; gap: 12px; }
         .btn {
           width: 100%;
           padding: 16px;
@@ -73,16 +67,13 @@ app.get('/', (req, res) => {
           transition: all 0.2s ease;
         }
         .btn-enable { background-color: #22c55e; color: #052e16; }
-        .btn-enable:hover { background-color: #16a34a; }
         .btn-disable { background-color: #ef4444; color: #ffffff; }
-        .btn-disable:hover { background-color: #dc2626; }
       </style>
     </head>
     <body>
       <div class="container">
         <h1>Painel do Dispositivo</h1>
         <div id="deviceIdDisplay" class="device-id">Identificando...</div>
-        
         <div id="status" class="status-badge inactive-badge">CARREGANDO...</div>
         
         <div class="button-group">
@@ -92,7 +83,6 @@ app.get('/', (req, res) => {
       </div>
 
       <script>
-        // Obtém ou gera um ID único para este navegador
         function getDeviceId() {
           let id = localStorage.getItem('spoofer_device_token');
           if (!id) {
@@ -139,6 +129,22 @@ app.get('/', (req, res) => {
   `);
 });
 
+// Bridge Cross-Domain (Permite o Blog consultar o Token seguro do Render)
+app.get('/auth-bridge', (req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <body>
+      <script>
+        const deviceId = localStorage.getItem('spoofer_device_token');
+        window.parent.postMessage({ type: 'SPOOFER_DEVICE_ID', deviceId: deviceId }, '*');
+      </script>
+    </body>
+    </html>
+  `);
+});
+
 // 2. ENDPOINTS DA API
 app.post('/api/set-status', (req, res) => {
   const { deviceId, active } = req.body;
@@ -166,19 +172,27 @@ app.get('/device-spoofer.js', (req, res) => {
 (function() {
     'use strict';
 
-    // Recupera o ID do dispositivo salvo no navegador
-    const deviceId = localStorage.getItem('spoofer_device_token');
-    if (!deviceId) {
-        return; // Se este dispositivo nunca acessou o painel, não faz nada
-    }
+    // Cria iframe invisível para consultar o token no domínio do Render
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = 'https://maestro-server3.onrender.com/auth-bridge';
+    document.body.appendChild(iframe);
 
-    fetch('https://maestro-server3.onrender.com/api/status?deviceId=' + encodeURIComponent(deviceId))
-      .then(res => res.json())
-      .then(data => {
-        if (!data.active) return;
-        executeSpoofer();
-      })
-      .catch(() => {});
+    window.addEventListener('message', function(event) {
+        if (event.data && event.data.type === 'SPOOFER_DEVICE_ID') {
+            const deviceId = event.data.deviceId;
+            if (!deviceId) return;
+
+            fetch('https://maestro-server3.onrender.com/api/status?deviceId=' + encodeURIComponent(deviceId))
+              .then(res => res.json())
+              .then(data => {
+                if (data.active) {
+                  executeSpoofer();
+                }
+              })
+              .catch(() => {});
+        }
+    }, false);
 
     function executeSpoofer() {
         const VISITS_TO_RESET = 2;
@@ -191,7 +205,6 @@ app.get('/device-spoofer.js', (req, res) => {
 
         function clearTracking() {
             try {
-                const currentToken = localStorage.getItem('spoofer_device_token');
                 document.cookie.split(";").forEach(cookie => {
                     const name = cookie.split("=")[0].trim();
                     if (name) {
@@ -200,10 +213,6 @@ app.get('/device-spoofer.js', (req, res) => {
                 });
                 localStorage.clear();
                 sessionStorage.clear();
-                // Preserva o token de autorização do dispositivo após a limpeza
-                if (currentToken) {
-                    localStorage.setItem('spoofer_device_token', currentToken);
-                }
             } catch(e) {}
         }
 
@@ -237,7 +246,7 @@ app.get('/device-spoofer.js', (req, res) => {
 
         spoofFingerprint();
 
-        console.log(\`%c[Custom Ads] Visita (\${visitCount}/\${VISITS_TO_RESET}) | Device ID: \${currentUserId}\`, 'color: #00ff88; font-weight: bold');
+        console.log(\`%c[Custom Ads] Dispositivo Autorizado | Visita (\${visitCount}/\${VISITS_TO_RESET}) | ID: \${currentUserId}\`, 'color: #00ff88; font-weight: bold');
     }
 })();
   `;
