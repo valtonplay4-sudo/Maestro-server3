@@ -5,11 +5,12 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.use(cors());
+app.use(express.json());
 
-// Estado global do sistema no servidor
-let isSystemActive = false;
+// Conjunto para armazenar apenas os IDs de dispositivos autorizados
+const authorizedDevices = new Set();
 
-// 1. INTERFACE HTML (Painel de Controle com 2 Botões)
+// 1. INTERFACE HTML (Painel por Dispositivo)
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`
@@ -40,14 +41,15 @@ app.get('/', (req, res) => {
           text-align: center;
           border: 1px solid #334155;
         }
-        h1 { font-size: 20px; font-weight: 600; margin-bottom: 24px; color: #94a3b8; }
+        h1 { font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #94a3b8; }
+        .device-id { font-size: 11px; color: #64748b; margin-bottom: 20px; word-break: break-all; }
         .status-badge {
           display: inline-block;
           padding: 8px 16px;
           border-radius: 9999px;
           font-weight: 700;
           font-size: 14px;
-          margin-bottom: 32px;
+          margin-bottom: 28px;
           text-transform: uppercase;
           letter-spacing: 1px;
         }
@@ -78,29 +80,59 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div class="container">
-        <h1>Painel do Script</h1>
-        <div id="status" class="status-badge ${isSystemActive ? 'active-badge' : 'inactive-badge'}">
-          ${isSystemActive ? 'SISTEMA ATIVO' : 'SISTEMA DESATIVADO'}
-        </div>
+        <h1>Painel do Dispositivo</h1>
+        <div id="deviceIdDisplay" class="device-id">Identificando...</div>
+        
+        <div id="status" class="status-badge inactive-badge">CARREGANDO...</div>
         
         <div class="button-group">
-          <button class="btn btn-enable" onclick="setStatus(true)">ATIVAR SCRIPT</button>
-          <button class="btn btn-disable" onclick="setStatus(false)">DESATIVAR SCRIPT</button>
+          <button class="btn btn-enable" onclick="setStatus(true)">ATIVAR NESTE DISPOSITIVO</button>
+          <button class="btn btn-disable" onclick="setStatus(false)">DESATIVAR NESTE DISPOSITIVO</button>
         </div>
       </div>
 
       <script>
+        // Obtém ou gera um ID único para este navegador
+        function getDeviceId() {
+          let id = localStorage.getItem('spoofer_device_token');
+          if (!id) {
+            id = 'dev_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+            localStorage.setItem('spoofer_device_token', id);
+          }
+          return id;
+        }
+
+        const deviceId = getDeviceId();
+        document.getElementById('deviceIdDisplay').textContent = "ID: " + deviceId;
+
+        function checkStatus() {
+          fetch('/api/status?deviceId=' + encodeURIComponent(deviceId))
+            .then(res => res.json())
+            .then(data => {
+              const statusEl = document.getElementById('status');
+              if (data.active) {
+                statusEl.textContent = 'ESTE DISPOSITIVO: ATIVO';
+                statusEl.className = 'status-badge active-badge';
+              } else {
+                statusEl.textContent = 'ESTE DISPOSITIVO: INATIVO';
+                statusEl.className = 'status-badge inactive-badge';
+              }
+            });
+        }
+
         function setStatus(active) {
           fetch('/api/set-status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ active: active })
+            body: JSON.stringify({ deviceId: deviceId, active: active })
           })
           .then(res => res.json())
-          .then(data => {
-            window.location.reload();
+          .then(() => {
+            checkStatus();
           });
         }
+
+        checkStatus();
       </script>
     </body>
     </html>
@@ -108,20 +140,25 @@ app.get('/', (req, res) => {
 });
 
 // 2. ENDPOINTS DA API
-app.use(express.json());
-
 app.post('/api/set-status', (req, res) => {
-  if (typeof req.body.active === 'boolean') {
-    isSystemActive = req.body.active;
+  const { deviceId, active } = req.body;
+  if (deviceId) {
+    if (active) {
+      authorizedDevices.add(deviceId);
+    } else {
+      authorizedDevices.delete(deviceId);
+    }
   }
-  res.json({ active: isSystemActive });
+  res.json({ success: true, active: authorizedDevices.has(deviceId) });
 });
 
 app.get('/api/status', (req, res) => {
-  res.json({ active: isSystemActive });
+  const deviceId = req.query.deviceId;
+  const isAuthorized = deviceId ? authorizedDevices.has(deviceId) : false;
+  res.json({ active: isAuthorized });
 });
 
-// 3. SCRIPT SERVIDO PARA O BLOGGER
+// 3. SCRIPT ENTREGUE PARA O BLOGGER
 app.get('/device-spoofer.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   
@@ -129,7 +166,13 @@ app.get('/device-spoofer.js', (req, res) => {
 (function() {
     'use strict';
 
-    fetch('https://maestro-server3.onrender.com/api/status')
+    // Recupera o ID do dispositivo salvo no navegador
+    const deviceId = localStorage.getItem('spoofer_device_token');
+    if (!deviceId) {
+        return; // Se este dispositivo nunca acessou o painel, não faz nada
+    }
+
+    fetch('https://maestro-server3.onrender.com/api/status?deviceId=' + encodeURIComponent(deviceId))
       .then(res => res.json())
       .then(data => {
         if (!data.active) return;
@@ -148,6 +191,7 @@ app.get('/device-spoofer.js', (req, res) => {
 
         function clearTracking() {
             try {
+                const currentToken = localStorage.getItem('spoofer_device_token');
                 document.cookie.split(";").forEach(cookie => {
                     const name = cookie.split("=")[0].trim();
                     if (name) {
@@ -156,6 +200,10 @@ app.get('/device-spoofer.js', (req, res) => {
                 });
                 localStorage.clear();
                 sessionStorage.clear();
+                // Preserva o token de autorização do dispositivo após a limpeza
+                if (currentToken) {
+                    localStorage.setItem('spoofer_device_token', currentToken);
+                }
             } catch(e) {}
         }
 
