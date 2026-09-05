@@ -7,164 +7,171 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Lista mantida no servidor
-const authorizedDevices = new Set();
+// Token Secreto Global para Autorização do Seu Dispositivo
+const MASTER_KEY = "maestro_authorized_dev";
 
-// 1. PAINEL DE CONTROLE (Render)
+// 1. INTERFACE REDESENHADA (NOVO VISUAL E MODO DE DIAGNÓSTICO)
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`
     <!DOCTYPE html>
-    <html lang="pt">
+    <html lang="pt-BR">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Painel de Controle - Spoofer</title>
+      <title>Painel Maestro v2.0 - Controle de Dispositivo</title>
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          background-color: #0f172a;
-          color: #f8fafc;
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background: #090d16;
+          color: #e2e8f0;
           display: flex;
           justify-content: center;
           align-items: center;
           min-height: 100vh;
+          padding: 20px;
         }
-        .container {
-          background-color: #1e293b;
-          border-radius: 16px;
-          padding: 32px;
-          width: 90%;
-          max-width: 400px;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        .panel-card {
+          background: #111827;
+          border: 2px solid #1f2937;
+          border-radius: 20px;
+          padding: 28px;
+          width: 100%;
+          max-width: 440px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .header {
           text-align: center;
+          margin-bottom: 24px;
+        }
+        .header h1 {
+          font-size: 22px;
+          color: #38bdf8;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+        .header p {
+          font-size: 12px;
+          color: #64748b;
+          margin-top: 4px;
+        }
+        .status-box {
+          background: #1e293b;
+          border-radius: 12px;
+          padding: 20px;
+          text-align: center;
+          margin-bottom: 24px;
           border: 1px solid #334155;
         }
-        h1 { font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #94a3b8; }
-        .device-id { font-size: 11px; color: #64748b; margin-bottom: 20px; word-break: break-all; }
-        .status-badge {
+        .status-indicator {
           display: inline-block;
-          padding: 8px 16px;
-          border-radius: 9999px;
-          font-weight: 700;
-          font-size: 14px;
-          margin-bottom: 28px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          margin-right: 8px;
         }
-        .active-badge { background-color: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
-        .inactive-badge { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-        .button-group { display: flex; flex-direction: column; gap: 12px; }
+        .status-text {
+          font-size: 16px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .state-active { color: #4ade80; }
+        .state-active .status-indicator { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+        .state-inactive { color: #f87171; }
+        .state-inactive .status-indicator { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
+        
+        .btn-group {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 24px;
+        }
         .btn {
           width: 100%;
           padding: 16px;
           border-radius: 12px;
           border: none;
-          font-size: 16px;
+          font-size: 15px;
           font-weight: 700;
           cursor: pointer;
           transition: all 0.2s ease;
         }
-        .btn-enable { background-color: #22c55e; color: #052e16; }
-        .btn-disable { background-color: #ef4444; color: #ffffff; }
+        .btn-activate {
+          background: linear-gradient(135deg, #10b981, #059669);
+          color: #ffffff;
+        }
+        .btn-deactivate {
+          background: linear-gradient(135deg, #ef4444, #dc2626);
+          color: #ffffff;
+        }
+        .info-card {
+          background: #0f172a;
+          border-radius: 10px;
+          padding: 14px;
+          font-size: 12px;
+          color: #94a3b8;
+          border-left: 4px solid #38bdf8;
+          line-height: 1.5;
+        }
       </style>
     </head>
     <body>
-      <div class="container">
-        <h1>Painel do Dispositivo</h1>
-        <div id="deviceIdDisplay" class="device-id">Identificando...</div>
-        <div id="status" class="status-badge inactive-badge">CARREGANDO...</div>
-        
-        <div class="button-group">
-          <button class="btn btn-enable" onclick="setStatus(true)">ATIVAR NESTE DISPOSITIVO</button>
-          <button class="btn btn-disable" onclick="setStatus(false)">DESATIVAR NESTE DISPOSITIVO</button>
+      <div class="panel-card">
+        <div class="header">
+          <h1>MAESTRO SPOOFER v2.0</h1>
+          <p>Painel de Ativação por Dispositivo</p>
+        </div>
+
+        <div id="statusContainer" class="status-box state-inactive">
+          <span class="status-indicator"></span>
+          <span id="statusLabel" class="status-text">VERIFICANDO DISPOSITIVO...</span>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn btn-activate" onclick="setDeviceStatus(true)">ATIVAR NESTE DISPOSITIVO</button>
+          <button class="btn btn-deactivate" onclick="setDeviceStatus(false)">DESATIVAR NESTE DISPOSITIVO</button>
+        </div>
+
+        <div class="info-card">
+          <strong>Como funciona:</strong> Ao clicar em Ativar, uma chave de identificação única é salva no armazenamento seguro deste navegador. O script nos blogs só rodará quando este aparelho acessar o site.
         </div>
       </div>
 
       <script>
-        function getDeviceId() {
-          let id = localStorage.getItem('spoofer_device_token');
-          if (!id) {
-            id = 'dev_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
-            localStorage.setItem('spoofer_device_token', id);
+        const AUTH_KEY = 'maestro_device_authorized';
+
+        function updateUI() {
+          const isAuthorized = localStorage.getItem(AUTH_KEY) === 'true';
+          const container = document.getElementById('statusContainer');
+          const label = document.getElementById('statusLabel');
+
+          if (isAuthorized) {
+            container.className = 'status-box state-active';
+            label.textContent = 'DISPOSITIVO AUTORIZADO';
+          } else {
+            container.className = 'status-box state-inactive';
+            label.textContent = 'DISPOSITIVO NÃO AUTORIZADO';
           }
-          return id;
         }
 
-        const deviceId = getDeviceId();
-        document.getElementById('deviceIdDisplay').textContent = "ID: " + deviceId;
-
-        function checkStatus() {
-          fetch('/api/status?deviceId=' + encodeURIComponent(deviceId))
-            .then(res => res.json())
-            .then(data => {
-              const statusEl = document.getElementById('status');
-              if (data.active) {
-                statusEl.textContent = 'ESTE DISPOSITIVO: ATIVO';
-                statusEl.className = 'status-badge active-badge';
-              } else {
-                statusEl.textContent = 'ESTE DISPOSITIVO: INATIVO';
-                statusEl.className = 'status-badge inactive-badge';
-              }
-            });
+        function setDeviceStatus(active) {
+          if (active) {
+            localStorage.setItem(AUTH_KEY, 'true');
+          } else {
+            localStorage.removeItem(AUTH_KEY);
+          }
+          updateUI();
         }
 
-        function setStatus(active) {
-          fetch('/api/set-status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId: deviceId, active: active })
-          })
-          .then(res => res.json())
-          .then(() => {
-            checkStatus();
-          });
-        }
-
-        checkStatus();
+        updateUI();
       </script>
     </body>
     </html>
   `);
 });
 
-// Bridge Cross-Domain (Permite o Blog consultar o Token seguro do Render)
-app.get('/auth-bridge', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <body>
-      <script>
-        const deviceId = localStorage.getItem('spoofer_device_token');
-        window.parent.postMessage({ type: 'SPOOFER_DEVICE_ID', deviceId: deviceId }, '*');
-      </script>
-    </body>
-    </html>
-  `);
-});
-
-// 2. ENDPOINTS DA API
-app.post('/api/set-status', (req, res) => {
-  const { deviceId, active } = req.body;
-  if (deviceId) {
-    if (active) {
-      authorizedDevices.add(deviceId);
-    } else {
-      authorizedDevices.delete(deviceId);
-    }
-  }
-  res.json({ success: true, active: authorizedDevices.has(deviceId) });
-});
-
-app.get('/api/status', (req, res) => {
-  const deviceId = req.query.deviceId;
-  const isAuthorized = deviceId ? authorizedDevices.has(deviceId) : false;
-  res.json({ active: isAuthorized });
-});
-
-// 3. SCRIPT ENTREGUE PARA O BLOGGER
+// 2. SCRIPT EXECUTÁVEL NOS BLOGS DO BLOGGER
 app.get('/device-spoofer.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   
@@ -172,82 +179,80 @@ app.get('/device-spoofer.js', (req, res) => {
 (function() {
     'use strict';
 
-    // Cria iframe invisível para consultar o token no domínio do Render
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = 'https://maestro-server3.onrender.com/auth-bridge';
-    document.body.appendChild(iframe);
+    const AUTH_KEY = 'maestro_device_authorized';
+    const MASTER_TOKEN = "${MASTER_KEY}";
 
-    window.addEventListener('message', function(event) {
-        if (event.data && event.data.type === 'SPOOFER_DEVICE_ID') {
-            const deviceId = event.data.deviceId;
-            if (!deviceId) return;
-
-            fetch('https://maestro-server3.onrender.com/api/status?deviceId=' + encodeURIComponent(deviceId))
-              .then(res => res.json())
-              .then(data => {
-                if (data.active) {
-                  executeSpoofer();
-                }
-              })
-              .catch(() => {});
-        }
-    }, false);
-
-    function executeSpoofer() {
-        const VISITS_TO_RESET = 2;
-
-        function generateNewUserId() {
-            const timestamp = Date.now();
-            const random = Math.random().toString(36).substring(2, 15);
-            return 'device_' + timestamp + '_' + random;
-        }
-
-        function clearTracking() {
-            try {
-                document.cookie.split(";").forEach(cookie => {
-                    const name = cookie.split("=")[0].trim();
-                    if (name) {
-                        document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
-                    }
-                });
-                localStorage.clear();
-                sessionStorage.clear();
-            } catch(e) {}
-        }
-
-        function spoofFingerprint() {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                ctx.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16);
-                ctx.fillRect(0, 0, 220, 30);
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '14px Arial';
-                ctx.fillText('Device ' + Math.random().toString(36).substr(2, 6), 10, 20);
-            }
-        }
-
-        let visitCount = parseInt(localStorage.getItem('visit_counter') || '0');
-        let currentUserId = localStorage.getItem('current_device_id');
-
-        visitCount++;
-
-        if (visitCount >= VISITS_TO_RESET || !currentUserId) {
-            currentUserId = generateNewUserId();
-            visitCount = 1;
-            clearTracking();
-        }
-
-        localStorage.setItem('visit_counter', visitCount);
-        localStorage.setItem('current_device_id', currentUserId);
-
-        window.currentFakeUserId = currentUserId;
-
-        spoofFingerprint();
-
-        console.log(\`%c[Custom Ads] Dispositivo Autorizado | Visita (\${visitCount}/\${VISITS_TO_RESET}) | ID: \${currentUserId}\`, 'color: #00ff88; font-weight: bold');
+    // 1. Verificação via URL Param (Permite ativar abrindo o blog com ?spoofer=on no final)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('spoofer') === 'on' || urlParams.get('token') === MASTER_TOKEN) {
+        localStorage.setItem(AUTH_KEY, 'true');
+    } else if (urlParams.get('spoofer') === 'off') {
+        localStorage.removeItem(AUTH_KEY);
     }
+
+    // 2. Trava de Execução: Só roda se o dispositivo estiver autorizado no localStorage
+    const isAuthorized = localStorage.getItem(AUTH_KEY) === 'true';
+    if (!isAuthorized) {
+        return;
+    }
+
+    // 3. Lógica do Spoofer
+    const VISITS_TO_RESET = 2;
+
+    function generateNewUserId() {
+        return 'device_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    }
+
+    function clearTracking() {
+        try {
+            document.cookie.split(";").forEach(cookie => {
+                const name = cookie.split("=")[0].trim();
+                if (name) {
+                    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                }
+            });
+            
+            // Preserva a autorização do dispositivo durante o reset de rastreamento
+            const savedAuth = localStorage.getItem(AUTH_KEY);
+            localStorage.clear();
+            sessionStorage.clear();
+            if (savedAuth) {
+                localStorage.setItem(AUTH_KEY, savedAuth);
+            }
+        } catch(e) {}
+    }
+
+    function spoofFingerprint() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16);
+            ctx.fillRect(0, 0, 220, 30);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '14px Arial';
+            ctx.fillText('Device ' + Math.random().toString(36).substr(2, 6), 10, 20);
+        }
+    }
+
+    let visitCount = parseInt(localStorage.getItem('visit_counter') || '0');
+    let currentUserId = localStorage.getItem('current_device_id');
+
+    visitCount++;
+
+    if (visitCount >= VISITS_TO_RESET || !currentUserId) {
+        currentUserId = generateNewUserId();
+        visitCount = 1;
+        clearTracking();
+    }
+
+    localStorage.setItem('visit_counter', visitCount);
+    localStorage.setItem('current_device_id', currentUserId);
+
+    window.currentFakeUserId = currentUserId;
+
+    spoofFingerprint();
+
+    console.log(\`%c[Maestro Spoofer v2.0] Ativo | Visita (\${visitCount}/\${VISITS_TO_RESET}) | ID: \${currentUserId}\`, 'color: #00ff88; font-weight: bold; background: #000; padding: 4px;');
 })();
   `;
 
