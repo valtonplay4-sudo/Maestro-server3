@@ -6,7 +6,6 @@ const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 
-// Página informativa simples para o servidor
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`
@@ -15,7 +14,7 @@ app.get('/', (req, res) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Servidor de Script</title>
+      <title>Servidor Spoofer Persistente</title>
       <style>
         body { font-family: sans-serif; background: #0f172a; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .card { background: #1e293b; padding: 25px; border-radius: 12px; text-align: center; max-width: 400px; border: 1px solid #334155; }
@@ -24,22 +23,21 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div class="card">
-        <h2>Ativação Individual</h2>
-        <p>Para ativar o script no seu navegador, acesse o seu blog adicionando:</p>
-        <p><code>?spoofer=on</code></p>
-        <p>Para desativar no seu navegador, acesse:</p>
-        <p><code>?spoofer=off</code></p>
+        <h2>Servidor Ativo (Persistência Total)</h2>
+        <p>Ativar permanente: <code>?spoofer=on</code></p>
+        <p>Desativar permanente: <code>?spoofer=off</code></p>
       </div>
     </body>
     </html>
   `);
 });
 
-// Arquivo do script fornecido ao Blogger
+// SCRIPT COM PERSISTÊNCIA DUPLA (LOCALSTORAGE + COOKIE DE 10 ANOS)
 app.get('/device-spoofer.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
   const scriptContent = `
 (function() {
     'use strict';
@@ -47,41 +45,64 @@ app.get('/device-spoofer.js', (req, res) => {
     const STORAGE_KEY = 'user_spoofer_enabled';
     const VISITS_TO_RESET = 2;
 
-    // 1. Verifica se o usuário enviou o comando de ativação ou desativação pela URL
+    // Funções auxiliares para leitura/escrita de cookie de persistência (10 Anos)
+    function setPersistCookie(value) {
+        var expires = new Date(Date.now() + 315360000000).toUTCString(); // 10 anos
+        document.cookie = STORAGE_KEY + '=' + value + ';expires=' + expires + ';path=/;SameSite=Lax';
+    }
+
+    function removePersistCookie() {
+        document.cookie = STORAGE_KEY + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+    }
+
+    function getPersistCookie() {
+        var match = document.cookie.match(new RegExp('(^| )' + STORAGE_KEY + '=([^;]+)'));
+        return match ? match[2] : null;
+    }
+
+    // 1. Processa gatilhos de URL (?spoofer=on / ?spoofer=off)
     try {
-        const urlParams = new URLSearchParams(window.location.search);
-        
-        if (urlParams.get('spoofer') === 'on') {
+        if (window.location.search.indexOf('spoofer=on') !== -1) {
             localStorage.setItem(STORAGE_KEY, 'true');
-            // Limpa o parâmetro da URL sem recarregar a página
+            setPersistCookie('true');
             window.history.replaceState({}, document.title, window.location.pathname);
-        } else if (urlParams.get('spoofer') === 'off') {
+        } else if (window.location.search.indexOf('spoofer=off') !== -1) {
             localStorage.removeItem(STORAGE_KEY);
+            removePersistCookie();
             window.history.replaceState({}, document.title, window.location.pathname);
             return;
         }
     } catch(e) {}
 
-    // 2. Bloqueia a execução se este navegador específico não ativou a chave
-    if (localStorage.getItem(STORAGE_KEY) !== 'true') {
+    // Sincroniza e verifica o estado de ativação (Checa LocalStorage e Cookie)
+    var isEnabledLocalStorage = localStorage.getItem(STORAGE_KEY) === 'true';
+    var isEnabledCookie = getPersistCookie() === 'true';
+
+    if (isEnabledCookie && !isEnabledLocalStorage) {
+        localStorage.setItem(STORAGE_KEY, 'true');
+        isEnabledLocalStorage = true;
+    }
+
+    // 2. Trava absoluta: Se não estiver ativo em nenhuma das memórias, interrompe a execução
+    if (!isEnabledLocalStorage && !isEnabledCookie) {
         return;
     }
 
-    // 3. Execução da simulação para navegadores autorizados
+    // 3. Execução da simulação
     function generateNewUserId() {
         return 'device_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
     }
 
     function clearTracking() {
         try {
-            document.cookie.split(";").forEach(cookie => {
-                const name = cookie.split("=")[0].trim();
-                if (name) {
+            // Limpa cookies de terceiros sem apagar o cookie da chave spoofer
+            document.cookie.split(";").forEach(function(cookie) {
+                var name = cookie.split("=")[0].trim();
+                if (name && name !== STORAGE_KEY) {
                     document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
                 }
             });
             
-            // Apaga dados temporários mantendo a chave de permissão
             sessionStorage.clear();
             localStorage.removeItem('visit_counter');
             localStorage.removeItem('current_device_id');
@@ -90,8 +111,8 @@ app.get('/device-spoofer.js', (req, res) => {
 
     function spoofFingerprint() {
         try {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
+            var canvas = document.createElement('canvas');
+            var ctx = canvas.getContext('2d');
             if (ctx) {
                 ctx.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16);
                 ctx.fillRect(0, 0, 220, 30);
@@ -99,8 +120,8 @@ app.get('/device-spoofer.js', (req, res) => {
         } catch(e) {}
     }
 
-    let visitCount = parseInt(localStorage.getItem('visit_counter') || '0');
-    let currentUserId = localStorage.getItem('current_device_id');
+    var visitCount = parseInt(localStorage.getItem('visit_counter') || '0', 10);
+    var currentUserId = localStorage.getItem('current_device_id');
 
     visitCount++;
 
@@ -117,7 +138,7 @@ app.get('/device-spoofer.js', (req, res) => {
 
     spoofFingerprint();
 
-    console.log('[Spoofer Ativo no Dispositivo] Visita: ' + visitCount + ' | ID: ' + currentUserId);
+    console.log('[Spoofer Ativo - Persistente] Visita: ' + visitCount + ' | ID: ' + currentUserId);
 })();
   `;
 
