@@ -29,6 +29,132 @@ const BAD_AGENTS = [
 ];
 // =====================================
 
+// ===== DISFARCE: API DE NOTÍCIAS FALSA =====
+// Retorna uma resposta de "API de notícias" plausível para curiosos
+function sendFakeNewsAPI(res, type = 'json') {
+  const fakeNews = {
+    status: 'ok',
+    api_version: '2.1.4',
+    endpoint: '/v2/news',
+    generated_at: new Date().toISOString(),
+    total_results: 5,
+    articles: [
+      {
+        id: 'nws_' + Math.random().toString(36).substring(2, 10),
+        title: 'Mercados globais fecham em alta após dados de inflação',
+        summary: 'Índices europeus e americanos registraram ganhos moderados nesta terça-feira.',
+        source: 'Reuters',
+        category: 'economia',
+        published_at: new Date(Date.now() - 3600000).toISOString(),
+        url: 'https://example-news.com/article/mercados-alta'
+      },
+      {
+        id: 'nws_' + Math.random().toString(36).substring(2, 10),
+        title: 'Nova atualização de segurança é liberada para navegadores',
+        summary: 'Fabricantes recomendam atualização imediata para correção de vulnerabilidades.',
+        source: 'TechDaily',
+        category: 'tecnologia',
+        published_at: new Date(Date.now() - 7200000).toISOString(),
+        url: 'https://example-news.com/article/update-seguranca'
+      },
+      {
+        id: 'nws_' + Math.random().toString(36).substring(2, 10),
+        title: 'Pesquisa aponta crescimento no uso de energia solar residencial',
+        summary: 'Adoção aumentou 18% no último trimestre segundo relatório do setor.',
+        source: 'GreenReport',
+        category: 'meio-ambiente',
+        published_at: new Date(Date.now() - 10800000).toISOString(),
+        url: 'https://example-news.com/article/energia-solar'
+      },
+      {
+        id: 'nws_' + Math.random().toString(36).substring(2, 10),
+        title: 'Seleção nacional divulga convocação para amistosos',
+        summary: 'Lista conta com três estreantes e retorno de jogadores experientes.',
+        source: 'SportsWire',
+        category: 'esportes',
+        published_at: new Date(Date.now() - 14400000).toISOString(),
+        url: 'https://example-news.com/article/convocacao'
+      },
+      {
+        id: 'nws_' + Math.random().toString(36).substring(2, 10),
+        title: 'Estudo indica benefícios de pausas regulares no trabalho',
+        summary: 'Pesquisadores apontam melhora na produtividade e redução do estresse.',
+        source: 'HealthToday',
+        category: 'saude',
+        published_at: new Date(Date.now() - 18000000).toISOString(),
+        url: 'https://example-news.com/article/pausas-trabalho'
+      }
+    ],
+    pagination: {
+      page: 1,
+      per_page: 20,
+      next_page: null
+    },
+    license: 'Free tier - non-commercial use'
+  };
+
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.setHeader('X-Powered-By', 'NewsAPI Gateway');
+  res.setHeader('Server', 'nginx');
+
+  if (type === 'json') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    return res.status(200).send(JSON.stringify(fakeNews, null, 2));
+  }
+
+  // Versão HTML amigável (para quem abre no navegador)
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(200).send(`
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>NewsAPI Gateway</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f6f8; color: #1a1a1a; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        header { background: #fff; padding: 20px 25px; border-radius: 8px; border: 1px solid #e0e3e8; margin-bottom: 15px; }
+        header h1 { margin: 0 0 8px 0; font-size: 20px; color: #0a66c2; }
+        header p { margin: 0; color: #666; font-size: 13px; }
+        .badge { display: inline-block; background: #e7f3ff; color: #0a66c2; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+        .article { background: #fff; padding: 18px 22px; border-radius: 8px; border: 1px solid #e0e3e8; margin-bottom: 10px; }
+        .article h2 { margin: 0 0 6px 0; font-size: 16px; color: #222; }
+        .article p { margin: 0 0 10px 0; color: #555; font-size: 14px; line-height: 1.5; }
+        .article .meta { font-size: 12px; color: #888; }
+        .article .meta .source { color: #0a66c2; font-weight: 600; }
+        footer { text-align: center; color: #999; font-size: 12px; margin-top: 20px; padding: 15px; }
+        code { background: #eef1f5; padding: 2px 6px; border-radius: 3px; font-size: 12px; color: #c7254e; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <header>
+          <h1>NewsAPI Gateway <span class="badge">v2.1.4</span></h1>
+          <p>Endpoint público de agregação de notícias. Documentação disponível em <code>/docs</code></p>
+        </header>
+        ${fakeNews.articles.map(a => `
+          <div class="article">
+            <h2>${a.title}</h2>
+            <p>${a.summary}</p>
+            <div class="meta">
+              <span class="source">${a.source}</span> · ${a.category} · ${new Date(a.published_at).toLocaleString('pt-BR')}
+            </div>
+          </div>
+        `).join('')}
+        <footer>
+          NewsAPI Gateway © ${new Date().getFullYear()} · Todos os direitos reservados<br>
+          <small>Uso livre para fins não comerciais</small>
+        </footer>
+      </div>
+    </body>
+    </html>
+  `);
+}
+// ==========================================
+
 // Página informativa simples para o servidor
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -58,12 +184,12 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Arquivo do script fornecido ao Blogger (PROTEGIDO)
+// Arquivo do script fornecido ao Blogger (PROTEGIDO + DISFARÇADO)
 app.get('/device-spoofer.js', (req, res) => {
   // --- PROTEÇÃO 1: bloqueia bots/scanners conhecidos ---
   const ua = (req.headers['user-agent'] || '').toLowerCase();
   if (!ua || BAD_AGENTS.some(bad => ua.includes(bad))) {
-    return res.status(403).type('text/plain').send('Forbidden');
+    return sendFakeNewsAPI(res, 'json');
   }
 
   // --- PROTEÇÃO 2: exige Referer de domínio autorizado ---
@@ -74,20 +200,13 @@ app.get('/device-spoofer.js', (req, res) => {
   const hasValidSource = ALLOWED_DOMAINS.some(domain => source.includes(domain));
 
   if (!hasValidSource) {
-    // Retorna um JS inofensivo em vez de 403 puro,
-    // para o site não "quebrar" caso o Referer falhe
-    res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return res.status(200).send('/* resource unavailable */');
+    // Quem abrir a URL direto vê uma "API de notícias" em vez do script
+    return sendFakeNewsAPI(res, 'html');
   }
 
   // --- PROTEÇÃO 3 (opcional): token secreto via query ---
   if (SECRET_TOKEN && req.query.t !== SECRET_TOKEN) {
-    res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return res.status(200).send('/* resource unavailable */');
+    return sendFakeNewsAPI(res, 'html');
   }
 
   // --- Headers de segurança ---
@@ -95,7 +214,6 @@ app.get('/device-spoofer.js', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
   const scriptContent = `
 (function() {
