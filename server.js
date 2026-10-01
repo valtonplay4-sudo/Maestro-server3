@@ -6,6 +6,29 @@ const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 
+// ===== CONFIGURAÇÃO DE PROTEÇÃO =====
+// Domínios autorizados a carregar o script (adicione os seus)
+const ALLOWED_DOMAINS = [
+  'blogspot.com',
+  'blogger.com',
+  'blogspot.com.br',
+  // 'seudominio.com',
+];
+
+// Opcional: se quiser exigir token secreto via ?t=SEU_TOKEN
+// Deixe null para desativar essa checagem extra
+const SECRET_TOKEN = process.env.SCRIPT_TOKEN || null;
+
+// Bots/scanners conhecidos que tentam baixar scripts
+const BAD_AGENTS = [
+  'curl', 'wget', 'python', 'python-requests', 'scrapy',
+  'httpie', 'postman', 'insomnia', 'go-http-client',
+  'java/', 'libwww', 'okhttp', 'axios', 'node-fetch',
+  'bot', 'crawler', 'spider', 'scanner', 'nmap', 'nikto',
+  'masscan', 'zgrab', 'nuclei', 'sqlmap',
+];
+// =====================================
+
 // Página informativa simples para o servidor
 app.get('/', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -35,11 +58,45 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Arquivo do script fornecido ao Blogger
+// Arquivo do script fornecido ao Blogger (PROTEGIDO)
 app.get('/device-spoofer.js', (req, res) => {
+  // --- PROTEÇÃO 1: bloqueia bots/scanners conhecidos ---
+  const ua = (req.headers['user-agent'] || '').toLowerCase();
+  if (!ua || BAD_AGENTS.some(bad => ua.includes(bad))) {
+    return res.status(403).type('text/plain').send('Forbidden');
+  }
+
+  // --- PROTEÇÃO 2: exige Referer de domínio autorizado ---
+  const referer = req.headers.referer || req.headers.referrer || '';
+  const origin  = req.headers.origin || '';
+  const source  = referer || origin;
+
+  const hasValidSource = ALLOWED_DOMAINS.some(domain => source.includes(domain));
+
+  if (!hasValidSource) {
+    // Retorna um JS inofensivo em vez de 403 puro,
+    // para o site não "quebrar" caso o Referer falhe
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.status(200).send('/* resource unavailable */');
+  }
+
+  // --- PROTEÇÃO 3 (opcional): token secreto via query ---
+  if (SECRET_TOKEN && req.query.t !== SECRET_TOKEN) {
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.status(200).send('/* resource unavailable */');
+  }
+
+  // --- Headers de segurança ---
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+
   const scriptContent = `
 (function() {
     'use strict';
