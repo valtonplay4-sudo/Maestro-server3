@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const crypto = require('crypto');
 const app = express();
 
 const PORT = process.env.PORT || 10000;
@@ -12,6 +11,8 @@ const ALLOWED_DOMAINS = [
   'blogspot.com',
   'blogger.com',
   'blogspot.com.br',
+  // adicione seu domínio customizado aqui se usar:
+  // 'seudominio.com',
 ];
 
 const BAD_AGENTS = [
@@ -22,9 +23,7 @@ const BAD_AGENTS = [
 ];
 // =================
 
-// ===== DISFARCE: Analytics falso =====
 function sendFakeAnalytics(res) {
-  // JS mínimo e realista, parece um loader do Google Analytics
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -50,16 +49,122 @@ function sendFakeAPI(res) {
   }, null, 2));
 }
 
-// Ofuscador simples (rotação de string + base64 + eval wrapper)
-function obfuscate(code) {
-  const key = crypto.randomBytes(16).toString('hex');
-  const encoded = Buffer.from(code, 'utf8').toString('base64');
-  // quebra em pedaços pra não ficar gigante numa linha
-  const chunks = encoded.match(/.{1,80}/g).join('\\\n');
-  return `(function(){var _k='${key}';var _d='${chunks}';` +
-         `var _c=atob(_d.replace(/\\s/g,''));` +
-         `(new Function(_c))();})();`;
+// ============================================================
+// SCRIPT REAL — corrigido
+// BUGS CORRIGIDOS:
+//  1. clearTracking() agora preserva o flag 'user_spoofer_enabled'
+//  2. Ordem: limpa ANTES de setar novo ID
+//  3. Aceita spoofer=on/off/n (n = liga também, alias de on)
+//  4. Não apaga o próprio flag do spoofer
+// ============================================================
+const realCode = String.raw`
+(function(){
+'use strict';
+
+var FLAG = 'user_spoofer_enabled';
+var VISITS_TO_RESET = 2;
+
+// ---------- 1. Ler query string ----------
+var params;
+try { params = new URLSearchParams(location.search); } catch(e){ params = null; }
+
+if (params) {
+  var s = params.get('spoofer');
+  if (s === 'on' || s === 'n' || s === '1' || s === 'true') {
+    try { localStorage.setItem(FLAG, 'true'); } catch(e){}
+    try { history.replaceState({}, '', location.pathname + location.hash); } catch(e){}
+  } else if (s === 'off' || s === '0' || s === 'false') {
+    try { localStorage.removeItem(FLAG); } catch(e){}
+    try { history.replaceState({}, '', location.pathname + location.hash); } catch(e){}
+    return; // desliga tudo
+  }
 }
+
+// ---------- 2. Checar se está ativo ----------
+var ativo = false;
+try { ativo = localStorage.getItem(FLAG) === 'true'; } catch(e){}
+if (!ativo) return;
+
+// ---------- 3. Helpers ----------
+function genId(){
+  return 'device_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
+}
+
+// Limpa TUDO, exceto o flag do spoofer (senão ele se auto-desliga)
+function clearTracking(){
+  try {
+    document.cookie.split(';').forEach(function(c){
+      var name = c.split('=')[0].trim();
+      if (name) {
+        document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+        document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + location.hostname;
+      }
+    });
+  } catch(e){}
+  try {
+    sessionStorage.clear();
+  } catch(e){}
+  try {
+    // remove só as chaves do spoofer, preservando FLAG
+    var keep = {};
+    keep[FLAG] = localStorage.getItem(FLAG);
+    localStorage.clear();
+    if (keep[FLAG] !== null && keep[FLAG] !== undefined) {
+      localStorage.setItem(FLAG, keep[FLAG]);
+    }
+  } catch(e){}
+}
+
+function spoofFingerprint(){
+  try {
+    var c = document.createElement('canvas');
+    var x = c.getContext('2d');
+    if (!x) return;
+    x.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16);
+    x.fillRect(0, 0, 220, 30);
+    x.fillStyle = '#ffffff';
+    x.font = '14px Arial';
+    x.fillText('Device ' + Math.random().toString(36).slice(2, 8), 10, 20);
+  } catch(e){}
+}
+
+// ---------- 4. Lógica principal ----------
+var visitCount = 0;
+var currentUserId = null;
+try {
+  visitCount = parseInt(localStorage.getItem('visit_counter') || '0', 10);
+  currentUserId = localStorage.getItem('current_device_id');
+} catch(e){}
+
+visitCount++;
+
+if (visitCount >= VISITS_TO_RESET || !currentUserId) {
+  // PRIMEIRO limpa, DEPOIS gera novo ID
+  clearTracking();
+  currentUserId = genId();
+  visitCount = 1;
+}
+
+try {
+  localStorage.setItem('visit_counter', String(visitCount));
+  localStorage.setItem('current_device_id', currentUserId);
+} catch(e){}
+
+window.currentFakeUserId = currentUserId;
+
+spoofFingerprint();
+
+try {
+  console.log(
+    '%c[Custom Ads] Visita ' + visitCount + '/' + VISITS_TO_RESET +
+    ' | Device ID: ' + currentUserId,
+    'color: #00ff88; font-weight: bold'
+  );
+} catch(e){}
+
+})();
+`;
+
 // =====================================
 
 // Página inicial (disfarçada)
@@ -74,12 +179,11 @@ app.get('/', (req, res) => {
     `<p>Versão 4.2.1 · Região us-east-1</p></body></html>`);
 });
 
-// Rota PRINCIPAL — disfarçada de Google Analytics
-// Aceita /analytics/tracker.js E /device-spoofer.js (compatibilidade)
+// Rota PRINCIPAL do script
 app.get(['/analytics/tracker.js', '/device-spoofer.js'], (req, res) => {
   const ua = (req.headers['user-agent'] || '').toLowerCase();
 
-  // Bots/scanners → resposta falsa de API
+  // Bots/scanners → resposta falsa
   if (!ua || BAD_AGENTS.some(b => ua.includes(b))) {
     return sendFakeAPI(res);
   }
@@ -87,58 +191,25 @@ app.get(['/analytics/tracker.js', '/device-spoofer.js'], (req, res) => {
   const ref = req.headers.referer || req.headers.referrer || '';
   const org = req.headers.origin || '';
   const src = ref || org;
-  const valid = ALLOWED_DOMAINS.some(d => src.includes(d));
 
-  // Acesso direto (sem Referer) → finge ser um loader do Analytics
-  if (!valid) {
-    return sendFakeAnalytics(res);
+  // Se não tiver referer (acesso direto p/ teste), ENTREGA O SCRIPT
+  // (antes bloqueava, e isso quebrava o teste no navegador)
+  if (src) {
+    const valid = ALLOWED_DOMAINS.some(d => src.includes(d));
+    if (!valid) {
+      // Domínio não autorizado → finge ser loader do GA
+      return sendFakeAnalytics(res);
+    }
   }
 
-  // === Requisição legítima do blog ===
+  // === Requisição legítima ===
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
 
-  const realCode = `
-(function(){
-'use strict';
-var K='user_spoofer_enabled',V=2;
-try{
-  var p=new URLSearchParams(location.search);
-  if(p.get('spoofer')==='on'){localStorage.setItem(K,'true');
-    history.replaceState({},'',location.pathname);}
-  else if(p.get('spoofer')==='off'){localStorage.removeItem(K);
-    history.replaceState({},'',location.pathname);return;}
-}catch(e){}
-if(localStorage.getItem(K)!=='true')return;
-function gen(){return'device_'+Date.now()+'_'+Math.random().toString(36).slice(2,9);}
-function clr(){try{
-  document.cookie.split(';').forEach(function(c){
-    var n=c.split('=')[0].trim();
-    if(n)document.cookie=n+'=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
-  });
-  sessionStorage.clear();
-  localStorage.removeItem('visit_counter');
-  localStorage.removeItem('current_device_id');
-}catch(e){}}
-function fp(){try{
-  var c=document.createElement('canvas'),x=c.getContext('2d');
-  if(x){x.fillStyle='#'+Math.floor(Math.random()*16777215).toString(16);
-    x.fillRect(0,0,220,30);}
-}catch(e){}}
-var v=parseInt(localStorage.getItem('visit_counter')||'0');
-var u=localStorage.getItem('current_device_id');
-v++;
-if(v>=V||!u){clr();u=gen();v=1;}
-localStorage.setItem('visit_counter',v.toString());
-localStorage.setItem('current_device_id',u);
-window.currentFakeUserId=u;
-fp();
-})();
-  `;
-
-  res.status(200).send(obfuscate(realCode));
+  // Envia código LIMPO (sem obfuscação que quebrava o parser)
+  res.status(200).send(realCode);
 });
 
 app.listen(PORT, () => {
